@@ -1,18 +1,21 @@
 # app/schemas/user.py
+from typing import Union
 from pydantic import BaseModel, ConfigDict
 
-# ----- incoming payload -----
+# ----- incoming payload for registration/login -----
 class UserCreate(BaseModel):
     username: str
     password: str
 
-# ----- outgoing user -----
+# ----- outgoing user representation -----
 class UserOut(BaseModel):
-    id: int          # ← was str
+    id: Union[int, str]  # allow Postgres int or file‑backend UUID
     username: str
+
+    # Pydantic v2: allow attribute access
     model_config = ConfigDict(from_attributes=True)
 
-# ----- login response (JWT) -----
+# ----- JWT token response schema -----
 class Token(BaseModel):
     access_token: str
     token_type: str
