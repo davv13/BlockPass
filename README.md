@@ -16,7 +16,7 @@
 
 ### 1 . Clone the repo
 ```bash
-git clone https://github.com/<your‑user>/BlockPass.git
+git clone https://github.com/davv13/BlockPass.git
 cd BlockPass
 ```
 
