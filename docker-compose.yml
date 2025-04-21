@@ -21,18 +21,23 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      DB_BACKEND: postgres
-      POSTGRES_DB: blockpass
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
-      JWT_SECRET: supersecret
+    # load all your .env vars, including DB_BACKEND, FILE_PATH, VAULT_KEY, etc.
+    env_file: .env
     ports:
       - "8000:8000"
     volumes:
-      - .:/app    # hot‑reload in dev
+      - .:/app         # your code + .env
+      - ./data:/data   # for file‑backend JSON
+    # on startup: if file‑backend, init the JSON files; then launch uvicorn
+    command: >
+      /bin/sh -c "
+        if [ \"$DB_BACKEND\" = \"file\" ]; then
+          mkdir -p /data &&
+          [ -f /data/blockpass_users.json ] || echo '[]' > /data/blockpass_users.json &&
+          [ -f /data/blockpass_vault.json ] || echo '[]' > /data/blockpass_vault.json;
+        fi
+        uvicorn app.main:app --host 0.0.0.0 --reload
+      "
 
   pgadmin:
     image: dpage/pgadmin4

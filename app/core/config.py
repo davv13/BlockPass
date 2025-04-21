@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    # vault encryption
+    VAULT_KEY: str  # must be a 32‑byte URL‑safe base64 key
+
     # tell pydantic where the .env file is **and** to ignore unknown keys
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
