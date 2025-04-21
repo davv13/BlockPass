@@ -1,194 +1,158 @@
-# **BlockPass Quick‑Start Guide**
+## 🔐 **Secure Password Manager (Centralized + Blockchain-based)**
 
-This guide shows you how to get **BlockPass** running in two modes:
-
-1. **File‑backend mode** (no Docker, stores users in a JSON file)  
-2. **Docker + Postgres mode** (containerized Postgres database + optional pgAdmin)
-
-Follow the sections below in order. You can skip one mode if you only need the other.
+### The goal is to build a secure password management system with two modes — one using a traditional backend, and another using a decentralized blockchain approach.
 
 ---
 
-## 🚀 Prerequisites
+## 🚀 Getting Started with the Centralized Mode — PostgreSQL backend (Docker Compose)
 
-- **Git**  
-- **Python 3.11+**  
-- **pip** (comes with Python)  
-- **Docker Desktop** (for Docker mode)  
-- (Optional) **pgAdmin 4** or another Postgres GUI  
+### Prerequisites
+| tool | why you need it | get it |
+|------|-----------------|--------|
+| **Git** | clone the repo | <https://git‑scm.com> |
+| **Docker Engine + Docker Compose** | run PostgreSQL, the FastAPI app & pgAdmin in containers | <https://docs.docker.com/get-docker> |
 
 ---
 
-## A) File‑backend Mode
-
-Stores registered users in a local JSON file—no database or Docker required.
-
-### 1. Clone & enter repo
+### 1 . Clone the repo
 ```bash
-git clone https://github.com/yourusername/BlockPass.git
+git clone https://github.com/<your‑user>/BlockPass.git
 cd BlockPass
 ```
 
-### 2. Create & activate a virtual environment
+---
+
+### 2 . Create `.env`
+
+> `.env` is **git‑ignored** on purpose – each user keeps secrets locally.
+
 ```bash
-python -m venv .venv
-# Windows PowerShell
-.venv\Scripts\activate
-# (macOS/Linux)
-# source .venv/bin/activate
+touch .env
 ```
 
-### 3. Install dependencies
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
+Paste the following **minimal** configuration (edit to taste):
 
-### 4. Create your `.env` file
-In the project root, create a file named `.env` with these contents:
-```ini
-DB_BACKEND=file
-FILE_PATH=./blockpass_users.json
+```dotenv
+################  Database  ################
+DB_BACKEND=postgres              # ← tell the app to use PostgreSQL
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres       # change!!!
+POSTGRES_DB=blockpass
+POSTGRES_HOST=db                 # ← name of the service in docker‑compose.yml
+POSTGRES_PORT=5432
 
-JWT_SECRET=supersecretkey123
+################  JWT  ################
+JWT_SECRET=supersecretkey123     # change!!!
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+################  Vault  ################
+# 32‑byte key – see step 2‑b to generate safely
+VAULT_KEY=IgFtNNlpDrUbMEMlz6qVq5Bucr7iF9SakRiO3MYOqUU=
 ```
 
-### 5. Verify built‑in Swagger is enabled
-Ensure in `app/main.py` you have:
-```python
-app = FastAPI(
-    # … metadata …,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_tags=tags_metadata,
-)
-```
-and **no** custom `/docs` override.
-
-### 6. Start the server
+#### 2‑b . Generate a strong `VAULT_KEY`
 ```bash
-uvicorn app.main:app --reload
+python - <<'PY'
+import secrets, base64
+print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
+PY
 ```
-You should see:
-```
-Uvicorn running on http://127.0.0.1:8000
-```
-A new file `blockpass_users.json` (containing `[]`) will appear in the root.
-
-### 7. Smoke‑test endpoints
-- **Ping**  
-  ```bash
-  curl http://127.0.0.1:8000/ping
-  # → {"msg":"pong"}
-  ```
-- **OpenAPI JSON**  
-  ```bash
-  curl http://127.0.0.1:8000/openapi.json -o spec.json
-  # spec.json is created immediately
-  ```
-
-### 8. Use Swagger UI
-Open your browser to **http://127.0.0.1:8000/docs**. You’ll see:
-
-- **POST /auth/register**  
-- **POST /auth/login**
-
-### 9. Register & verify
-1. In Swagger, **POST /auth/register** with:
-   ```json
-   { "username": "alice", "password": "secret" }
-   ```
-2. You get back:
-   ```json
-   { "id": "UUID‑string", "username": "alice" }
-   ```
-3. Inspect `blockpass_users.json`—it now contains your user entry.
-4. **POST /auth/login** with the same body to receive a JWT.
+Copy the printed string into `VAULT_KEY=`.
 
 ---
 
-## B) Docker + Postgres Mode
+### 3 . Build & run everything
 
-Runs Postgres, your FastAPI app, and pgAdmin (optional) in containers.
-
-### 1. Switch `.env` to Postgres
-Update your existing `.env` with:
-```ini
-DB_BACKEND=postgres
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=blockpass
-POSTGRES_HOST=db
-POSTGRES_PORT=5432
-
-JWT_SECRET=supersecretkey123
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-```
-
-### 2. Verify `docker-compose.yml`
-Ensure under `services:` you have three entries:
-
-- **db** (Postgres)
-- **api** (your FastAPI app)
-- **pgadmin** (dpage/pgadmin4)
-
-And that indentation is correct.
-
-### 3. Build & start containers
 ```bash
-docker compose build api
-docker compose up -d
+docker compose up --build -d     # builds the API image and starts api + db + pgAdmin
 ```
 
-### 4. Confirm services are running
-```bash
-docker compose ps
-```
-You should see:
-```
-blockpass-db-1      Up (healthy)   0.0.0.0:5432->5432/tcp
-blockpass-api-1     Up             0.0.0.0:8000->8000/tcp
-blockpass-pgadmin-1 Up             0.0.0.0:5050->80/tcp
-```
+**First run = first migrations**  
+On launch the API auto‑creates all tables inside `blockpass` database.
 
-### 5. Smoke‑test API
-```bash
-curl http://localhost:8000/ping       # → {"msg":"pong"}
-curl http://localhost:8000/openapi.json -o spec.json
-```
+---
 
-### 6. Use Swagger UI
-Open **http://localhost:8000/docs**, then:
+### 4 . Open the services
 
-1. **POST /auth/register**  
-   ```json
-   { "username": "bob", "password": "hunter2" }
-   ```
-   → returns  
-   ```json
-   { "id": 1, "username": "bob" }
-   ```
-2. **POST /auth/login**  
-   → returns a JWT
+| URL | what you get | default creds |
+|-----|--------------|---------------|
+| <http://localhost:8000> | BlockPass web UI (Jinja2 + Bootstrap) | register your own |
+| <http://localhost:5050>  | **pgAdmin 4** | *email*: `admin@local.com`  /  *password*: `admin` |
 
-### 7. Inspect Postgres via psql
-```bash
-docker compose exec db psql -U postgres -d blockpass
-# at psql> prompt:
-\dt
-SELECT * FROM users;
-```
+> **Note:** data lives in the Docker volume `blockpass_db-data`; it persists across container restarts.
 
-### 8. (Optional) Inspect via pgAdmin
-1. Open **http://localhost:5050**, log in with **admin@local.com** / **admin**  
-2. Register server:  
-   - Host: `db`  
-   - Port: `5432`  
-   - DB: `blockpass`  
-   - User/Pass: `postgres`  
-3. Expand **Schemas → public → Tables → users** → **View/Edit Data → All Rows**
+---
+
+### 5 . Typical workflow
+
+1. **Register** a user at `http://localhost:8000/register`.  
+2. **Login** → you’re redirected to `/vault`.  
+3. Add, view & decrypt password items right in the browser.
+
+---
+
+### 6 . House‑keeping commands
+
+| task | command |
+|------|---------|
+| Stop containers (keep data) | `docker compose down` |
+| Stop **and** wipe the database | `docker compose down -v` |
+| Watch live API logs | `docker compose logs -f api` |
+| Rebuild after code or `.env` change | `docker compose up --build -d` |
+
+---
+
+## 🛠️🔐 How the backend of PostgreSQL backend (Docker Compose) works – under the hood  
+
+
+
+### 1 . User **Register → Login** flow & password handling
+
+| step | what happens | relevant code |
+|------|--------------|---------------|
+| **POST /​auth/register** | *a)* JSON payload `{username, password}` is parsed by Pydantic.<br>*b)* `app/core/security.hash_password()` hashes the raw password with **bcrypt $2b$12** (12 work‑factor).<br>*c)* The repository stores `{id, username, password_hash}`.<br>*d)* On success → **201 Created**. | `routes/auth.py` → `security.py` |
+| **POST /​auth/login** | *a)* Load user by `username`.<br>*b)* **bcrypt verify** against stored hash.<br>*c)* On match → build a **JWT** ⚙️: `{ "sub": <user‑id>, "exp": <now + n min> }` signed with `HS256` & `JWT_SECRET`.<br>*d)* Return it two ways: JSON → `{"access_token": "…"}` **and** set an **httpOnly cookie `access_token`** so the HTML UI works without JS. | `routes/auth.py` |
+
+**Storage:**  
+
+* **PostgreSQL backend** → row in `users` table. Column `password` stores the bcrypt string (`$2b$12$…`).  
+* **File backend** → same fields in `blockpass_users.json`.
+
+---
+
+### 2 . Token‑based auth (JWT) & CRUD for vault entries
+
+| piece | behaviour | file(s) |
+|-------|-----------|---------|
+| **Auth dependency** | `get_current_user()` first tries **`Authorization: Bearer <jwt>`**, then falls back to the cookie. It decodes the token, verifies signature & expiry and loads the user. `401` otherwise. | `core/auth.py` |
+| **Create item** | **POST /​vault/create** (HTML) or **POST /​vault/** (JSON) → encrypt secret with Fernet (key =`VAULT_KEY`) → store `{id (UUID‑hex), user_id, title, data (cipher‑text), created_at}`. | `routes/views.py` + `routes/vault.py` |
+| **Read list / item** | Only rows whose `user_id` == current user are queried; secret is decrypted on demand. | same as above |
+| **Update / Delete** | not implemented yet – deliberately MVP. (Good first issue ≙ PATCH/DELETE endpoints + HTML) |
+
+---
+
+### 3 . Validation, sanitation, tests
+
+| aspect | status |
+|--------|--------|
+| **Input validation** | All incoming JSON / form bodies pass through **Pydantic models** (`schemas/*.py`). |
+| **Route sanitation** | Vault routes verify ownership before returning data; IDs are URL‑safe strings (hex). |
+| **Hashing & token unit tests** | Basic pytest suite in `tests/test_security.py` – covers `hash_password()`, `verify_password()` and `create_access_token()` round‑trip. (_Run `pytest -q` locally_). |
+
+---
+
+### 4 . Security measures already in place ✅
+
+| category | what we do | why it matters |
+|----------|------------|----------------|
+| **Password safety** | * bcrypt‑12 with per‑user salt <br>* never store plaintext | Defends against credential dumps & rainbow tables |
+| **Transport** | The stack itself is TLS‑agnostic → put **Traefik / NGINX TLS termination** in front when deploying. |
+| **Authentication** | * Short‑lived JWT (default 60 min) <br>* Stored in **httpOnly** cookie → immune to XSS JS theft. | Minimises token leakage vector. |
+| **Authorisation** | Every vault query filters by `user_id`. Users can’t touch others’ items. |
+| **Data‑at‑rest** | Vault secrets are **AES‑256‑GCM via Fernet** with a key nobody but the operator knows (`VAULT_KEY`). |
+| **Dependency safety** | Latest stable libs in `requirements.txt`; image is **python:3.13‑slim** to keep CVE surface small. |
+| **CSRF** | Safe for same‑site cookies (`SameSite=Lax` by default in FastAPI). |
+| **SQL injection** | All queries use SQLAlchemy ORM or parameterised drivers – no string concatenation. |
 
 ---
