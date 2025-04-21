@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>{{ item.title }}</h2>
+
+<div class="card">
+  <div class="card-body">
+    <h6 class="card-subtitle mb-2 text-muted">
+      Created {{ item.created_at.strftime('%Y‑%m‑%d %H:%M:%S') }}
+    </h6>
+
+    <p class="card-text">
+      <strong>Password / secret:</strong><br>
+      <code>{{ secret }}</code>
+    </p>
+
+    <a href="/vault" class="btn btn-link">&larr; back</a>
+    <!-- optional delete -->
+    <form action="/vault/{{ item.id }}/delete" method="post"
+          class="d-inline">
+      <button class="btn btn-sm btn-danger"
+              onclick="return confirm('Delete forever?')">
+        Delete
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
