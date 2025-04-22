@@ -77,7 +77,7 @@ On launch the API auto‑creates all tables inside `blockpass` database.
 
 | URL | what you get | default creds |
 |-----|--------------|---------------|
-| <http://localhost:8000> | BlockPass web UI (Jinja2 + Bootstrap) | register your own |
+| <http://localhost:8000/register> | BlockPass web UI (Jinja2 + Bootstrap) | register your own |
 | <http://localhost:5050>  | **pgAdmin 4** | *email*: `admin@local.com`  /  *password*: `admin` |
 
 > **Note:** data lives in the Docker volume `blockpass_db-data`; it persists across container restarts.
