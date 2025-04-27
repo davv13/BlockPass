@@ -1,3 +1,4 @@
 .env
 .venv-dapp/
 secret.enc
+vault_blobs
