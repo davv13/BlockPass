@@ -1,0 +1,14 @@
+version: "1"
+
+networks:
+  ethereum:
+    sepolia:
+      default_provider: node
+      providers:
+        node:
+          uri: ${SEPOLIA_RPC_URL}
+
+accounts:
+  deployer:
+    type: local            
+    private_key: ${PRIVATE_KEY}

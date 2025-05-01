@@ -1,30 +1,61 @@
 """
-Interactive demo: Local Ethereum vault + Pinata IPFS storage.
+Interactive demo: Decentralised Vault
+• Encrypts secrets locally (Fernet)
+• Pins ciphertext to IPFS via Pinata
+• Stores only CID + title on Ethereum
 
 Requirements
 ------------
-* `ape test` provider (Hardhat) – launched automatically by `ape run`
 * .env must contain PINATA_API_KEY and PINATA_API_SECRET
-* Optional FERNET_KEY (32-byte url-safe base64). If absent it’s generated
-  once and persisted to .env for future runs.
+* Optional: PRIVATE_KEY and SEPOLIA_RPC_URL for Sepolia/Infura runs
+* Optional: FERNET_KEY (generated & saved automatically if absent)
 """
 
-import os, sys, time, getpass, json, textwrap
+import os, sys, time, getpass, textwrap
 from pathlib import Path
 from dotenv import load_dotenv, set_key
 
-# ── Make sure `dapp/` is importable ────────────────────────────
+# --- helpers ---------------------------------------------------------------
+from pathlib import Path
+import json, os
+from eth_account import Account
+from ape import accounts
+
+KEY_ALIAS = "deployer"
+KEYSTORE_DIR = Path.home() / ".ape" / "accounts"
+KEYSTORE_DIR.mkdir(parents=True, exist_ok=True)
+KEYSTORE_FILE = KEYSTORE_DIR / f"{KEY_ALIAS}.json"
+
+# ── Import project root ─────────────────────────────────────────
 SCRIPT_DIR   = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# ── Ape & helpers ──────────────────────────────────────────────
+# ── Ape & helpers ───────────────────────────────────────────────
 from ape import accounts, project, networks
 from ipfs.pinata_client import pin_file, fetch_ipfs
 from ipfs.encryption    import generate_key, encrypt_blob, decrypt_blob
 
 BLOB_DIR = SCRIPT_DIR / "vault_blobs"
 BLOB_DIR.mkdir(exist_ok=True)
+
+def ensure_keystore_from_env():
+    """
+    If the 'deployer' alias doesn't exist but PRIVATE_KEY is in the env,
+    create an un-encrypted keystore file so Ape will pick it up automatically
+    next time (and immediately in this process via accounts.load()).
+    """
+    if KEY_ALIAS in list(accounts.aliases):
+        return  # already available
+
+    raw_pk = os.getenv("PRIVATE_KEY", "").removeprefix("0x")
+    if not raw_pk:
+        return  # nothing we can do
+
+    # Create a keystore with **blank pass-phrase** so it's non-interactive.
+    ks = Account.encrypt(raw_pk, "")          # ""  ==> no password prompt
+    with KEYSTORE_FILE.open("w") as fh:
+        json.dump(ks, fh)
 
 # -----------------------------------------------------------------
 def banner():
@@ -39,11 +70,17 @@ def banner():
 
 # -----------------------------------------------------------------
 def choose_account():
-    print("Choose one of the built-in local test accounts:")
-    for i, acct in enumerate(accounts.test_accounts):
-        print(f"    [{i}] {acct.address}")
-    idx = int(input("Pick index 0-19 → ").strip())
-    return accounts.test_accounts[idx]
+    try:
+        acct = accounts.load("deployer")      # comes from YAML
+        print(f"🔑 Using config-file account: {acct.address}")
+        return acct
+    except KeyError:
+        # fallback only for a local Hardhat/Fork run
+        if networks.active_provider.name == "test":
+            return accounts.test_accounts[0]
+        raise RuntimeError(
+            "Alias 'deployer' not found – check ape-config.yaml location/indent"
+        )
 
 # -----------------------------------------------------------------
 def ensure_key(dotenv_path):
@@ -60,16 +97,14 @@ def ensure_key(dotenv_path):
 
 # -----------------------------------------------------------------
 def deploy_if_needed(owner):
-    if "Vault" in project:
-        # re-use existing artifact
-        pass
     vault = owner.deploy(project.Vault)
     print("🏛  Vault deployed →", vault.address)
     return vault
 
 # -----------------------------------------------------------------
 def list_items(vault, owner, key):
-    items = vault.getMyItems(sender=owner)
+    # Pull everything, then drop any items with no CID (e.g. deleted slots)
+    items = [it for it in vault.getMyItems(sender=owner) if it.cid]
     if not items:
         print("📭 No vault items yet.")
         return
@@ -82,26 +117,17 @@ def list_items(vault, owner, key):
 
         choice = input("Decrypt one? index / <enter>=back → ").strip()
         if choice == "":
-            # user chose to go back
             return
-
-        if not choice.isdigit():
-            print("❌ Please enter a number or just press Enter to go back.")
+        if not choice.isdigit() or not (0 <= int(choice) < len(items)):
+            print("❌ Invalid choice.")
             continue
 
-        i = int(choice)
-        if i < 0 or i >= len(items):
-            print(f"❌ No item at index {i}. Choose a valid index or press Enter to go back.")
-            continue
-
-        # valid index chosen
-        cid = items[i].cid
+        cid = items[int(choice)].cid
         print("⏳ Fetching from IPFS …")
-        data = fetch_ipfs(cid)
+        data  = fetch_ipfs(cid)
         plain = decrypt_blob(key, data)
         print("🔓 Decrypted payload:", plain.decode())
         return
-
 
 # -----------------------------------------------------------------
 def create_item(vault, owner, key):
@@ -113,12 +139,10 @@ def create_item(vault, owner, key):
     fname.write_bytes(ciphertext)
     print("✏️  Ciphertext saved →", fname)
 
-    # Pin
     print("⏳ Pinning to Pinata …")
     cid = pin_file(str(fname))
     print("📌 Pinned! CID =", cid)
 
-    # Store on-chain
     print("⛓  Sending createItem() …")
     receipt = vault.createItem(cid, title, sender=owner)
     print("✅ Tx mined @ block", receipt.block_number, "hash", receipt.txn_hash)
@@ -130,30 +154,18 @@ def delete_item(vault, owner):
         print("📭 Nothing to delete.")
         return
 
-    # Keep prompting until the user enters a valid index or cancels
     while True:
-        print("Your items:")
         for idx, it in enumerate(items):
             print(f"   [{idx}]  {it.title}  {it.cid}")
-
         choice = input("Index to delete / <enter>=cancel → ").strip()
         if choice == "":
-            # user chose to cancel
             return
-
-        if not choice.isdigit():
-            print("❌ Please enter a number or just press Enter to cancel.")
+        if not choice.isdigit() or not (0 <= int(choice) < len(items)):
+            print("❌ Invalid choice.")
             continue
-
-        i = int(choice)
-        if i < 0 or i >= len(items):
-            print(f"❌ No item at index {i}. Choose a valid index or press Enter to cancel.")
-            continue
-
-        # valid index chosen
         try:
-            print(f"🗑  Deleting item [{i}] …")
-            receipt = vault.deleteItem(i, sender=owner)
+            print(f"🗑  Deleting item [{choice}] …")
+            receipt = vault.deleteItem(int(choice), sender=owner)
             print("✅ Deleted. Tx hash:", receipt.txn_hash)
         except Exception as e:
             print("⚠️  Delete failed:", e)
@@ -161,6 +173,7 @@ def delete_item(vault, owner):
 
 # -----------------------------------------------------------------
 def main():
+    ensure_keystore_from_env() 
     banner()
 
     # 0) env + key
@@ -168,24 +181,21 @@ def main():
     load_dotenv(dotenv_path=dotenv_path)
     key = ensure_key(dotenv_path)
 
-    # 1) pick account
+    # 1) pick account (env-key or local test)
     owner = choose_account()
     print("👤 Active account:", owner.address)
-
-    # 2) make sure provider is up (ape run already connected)
     print("🔌 Network:", networks.active_provider)
 
-    # 3) deploy / load contract
+    # 2) deploy / load contract
     vault = deploy_if_needed(owner)
 
-    # 4) REPL loop
+    # 3) simple REPL
     while True:
-        print("\nMain menu — choose an action:")
+        print("\nMain menu:")
         print("  1) List my vault items")
         print("  2) Create a new vault item")
         print("  3) Delete an item")
         print("  4) Quit")
-
         sel = input("→ ").strip()
         if sel == "1":
             list_items(vault, owner, key)
