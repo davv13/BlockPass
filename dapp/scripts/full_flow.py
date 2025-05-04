@@ -35,9 +35,24 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from ape import accounts, project, networks
 from ipfs.pinata_client import pin_file, fetch_ipfs
 from ipfs.encryption    import generate_key, encrypt_blob, decrypt_blob
+import requests
 
 BLOB_DIR = SCRIPT_DIR / "vault_blobs"
 BLOB_DIR.mkdir(exist_ok=True)
+
+PINATA_BASE = "https://api.pinata.cloud"
+API_KEY    = os.getenv("PINATA_API_KEY")
+API_SECRET = os.getenv("PINATA_API_SECRET")
+HEADERS    = {
+    "pinata_api_key": API_KEY,
+    "pinata_secret_api_key": API_SECRET,
+}
+
+def unpin_file(cid: str) -> None:
+    """Unpin a file by its CID from Pinata."""
+    url = f"{PINATA_BASE}/pinning/unpin/{cid}"
+    resp = requests.delete(url, headers=HEADERS)
+    resp.raise_for_status()
 
 def ensure_keystore_from_env():
     """
@@ -96,10 +111,25 @@ def ensure_key(dotenv_path):
     return key
 
 # -----------------------------------------------------------------
-def deploy_if_needed(owner):
-    vault = owner.deploy(project.Vault)
+def deploy_if_needed(owner, dotenv_path):
+    from dotenv import set_key
+
+    # 1) Did we already record an address?
+    env_addr = os.getenv("VAULT_ADDRESS", "").strip()
+    if env_addr:
+        vault = project.Vault.at(env_addr)
+        print("🏛  Using existing Vault →", vault.address)
+        return vault
+
+    # 2) Otherwise: deploy, then persist into .env
+    vault = owner.deploy(project.Vault, gas_limit=300_000)
     print("🏛  Vault deployed →", vault.address)
+
+    # Persist back to .env so future runs will pick it up
+    set_key(str(dotenv_path), "VAULT_ADDRESS", vault.address)
+    print("🔖 Saved VAULT_ADDRESS in .env")
     return vault
+
 
 # -----------------------------------------------------------------
 def list_items(vault, owner, key):
@@ -157,19 +187,35 @@ def delete_item(vault, owner):
     while True:
         for idx, it in enumerate(items):
             print(f"   [{idx}]  {it.title}  {it.cid}")
+
         choice = input("Index to delete / <enter>=cancel → ").strip()
         if choice == "":
             return
         if not choice.isdigit() or not (0 <= int(choice) < len(items)):
             print("❌ Invalid choice.")
             continue
+
+        idx = int(choice)
+        it = items[idx]
+
+        # 1) On-chain delete
         try:
-            print(f"🗑  Deleting item [{choice}] …")
-            receipt = vault.deleteItem(int(choice), sender=owner)
+            print(f"🗑  Deleting item [{idx}] …")
+            receipt = vault.deleteItem(idx, sender=owner)
             print("✅ Deleted. Tx hash:", receipt.txn_hash)
         except Exception as e:
             print("⚠️  Delete failed:", e)
+            return
+
+        # 2) Unpin from Pinata
+        try:
+            unpin_file(it.cid)
+            print(f"📌 Unpinned {it.cid} from Pinata")
+        except Exception as e:
+            print(f"⚠️ Failed to unpin {it.cid}: {e}")
+
         return
+
 
 # -----------------------------------------------------------------
 def main():
@@ -187,7 +233,7 @@ def main():
     print("🔌 Network:", networks.active_provider)
 
     # 2) deploy / load contract
-    vault = deploy_if_needed(owner)
+    vault = deploy_if_needed(owner, dotenv_path)
 
     # 3) simple REPL
     while True:
