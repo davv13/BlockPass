@@ -1,11 +1,7 @@
-from cryptography.fernet import Fernet
-from app.core.config import get_settings
-
-_settings = get_settings()
-f = Fernet(_settings.VAULT_KEY.encode())
-
-def encrypt(plaintext: str) -> bytes:
-    return f.encrypt(plaintext.encode())
-
-def decrypt(ciphertext: bytes) -> str:
-    return f.decrypt(ciphertext).decode()
+# app/core/crypto.py
+"""
+DEPRECATED shim.
+Funnel all legacy imports to the new AES‑256‑GCM implementation.
+Remove this file once every module imports `app.core.encryption` directly.
+"""
+from app.core.encryption import encrypt, decrypt  # noqa: F401

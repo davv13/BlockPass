@@ -1,25 +1,26 @@
-# app/core/encryption.py
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import secrets
+import base64
+import json
 
-from cryptography.fernet import Fernet, InvalidToken
-from app.core.config import get_settings
+def encrypt(plaintext: str, key: bytes) -> str:
+    aesgcm = AESGCM(key)
+    nonce  = secrets.token_bytes(12)          # 96‑bit
+    ct     = aesgcm.encrypt(nonce, plaintext.encode(), None)
+    # split tag and ciphertext (tag = last 16 bytes)
+    tag, cipher = ct[-16:], ct[:-16]
+    blob = {
+        "nonce":     base64.b64encode(nonce).decode(),
+        "ciphertext":base64.b64encode(cipher).decode(),
+        "tag":       base64.b64encode(tag).decode(),
+    }
+    return json.dumps(blob)
 
-settings = get_settings()
-fernet = Fernet(settings.VAULT_KEY.encode())
-
-def encrypt_data(plaintext: str) -> bytes:
-    """
-    Encrypt a UTF‑8 string and return the ciphertext bytes.
-    """
-    token = fernet.encrypt(plaintext.encode("utf-8"))
-    return token
-
-def decrypt_data(token: bytes) -> str:
-    """
-    Decrypt ciphertext bytes and return the original UTF‑8 string.
-    Raises InvalidToken on tampering or wrong key.
-    """
-    try:
-        data = fernet.decrypt(token)
-        return data.decode("utf-8")
-    except InvalidToken:
-        raise
+def decrypt(blob_json: str, key: bytes) -> str:
+    blob = json.loads(blob_json)
+    nonce  = base64.b64decode(blob["nonce"])
+    cipher = base64.b64decode(blob["ciphertext"])
+    tag    = base64.b64decode(blob["tag"])
+    aesgcm = AESGCM(key)
+    plaintext = aesgcm.decrypt(nonce, cipher + tag, None)
+    return plaintext.decode()

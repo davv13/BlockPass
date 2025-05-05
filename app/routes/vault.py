@@ -1,40 +1,72 @@
 # app/routes/vault.py
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
-
-from app.schemas.vault import VaultItemCreate, VaultItemOut, VaultItemDetail
-from app.core.security import get_current_user
+from pydantic import BaseModel
+from app.core import kdf, encryption
 from app.repository import pick_repo
-from app.core.crypto import encrypt, decrypt
+from app.routes.auth import login  # JWT dependency if you have one
+from typing import List
 
 router = APIRouter(prefix="/vault", tags=["Vault"])
 
-@router.post("/", response_model=VaultItemOut, status_code=201)
-def create_vault_item(
-    payload: VaultItemCreate,
-    user = Depends(get_current_user),
-):
-    repo = pick_repo()
-    ct = encrypt(payload.secret)
-    item = repo.create_item(user_id=user["id"], title=payload.title, ciphertext=ct)
-    return VaultItemOut.from_orm(item)
+class SecretIn(BaseModel):
+    master_password: str
+    title: str
+    secret_value: str
 
-@router.get("/", response_model=List[VaultItemOut])
-def list_vault_items(user = Depends(get_current_user)):
-    repo = pick_repo()
-    items = repo.list_items(user_id=user["id"])
-    return [VaultItemOut.from_orm(i) for i in items]
+class SecretOut(BaseModel):
+    id: str
+    title: str
+    secret_value: str
 
-@router.get("/{item_id}", response_model=VaultItemDetail)
-def read_vault_item(item_id: str, user = Depends(get_current_user)):
+@router.post("/", response_model=SecretOut, status_code=201)
+def create_secret(payload: SecretIn, user_id: str = Depends(login)):
     repo = pick_repo()
-    item = repo.get_item(user_id=user["id"], item_id=item_id)
-    if not item:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return VaultItemDetail(
-        id=item.id,
-        title=item.title,
-        secret=decrypt(item.data),
-        created_at=item.created_at,
+    user = repo.get_by_id(user_id)
+
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    # 1) derive per‑user vault key
+    key = kdf.derive_key(
+        master_pwd=payload.master_password,
+        salt=bytes.fromhex(user["kdf_salt"]),
+        mem_kib=user["kdf_mem"],
+        time=user["kdf_time"],
+        lanes=user["kdf_lanes"],
     )
+
+    try:
+        blob = encryption.encrypt(payload.secret_value, key)
+    finally:
+        del key  # secure wipe
+
+    item = repo.create_item(user_id, payload.title, blob)
+    return {"id": item.id, "title": item.title, "secret_value": payload.secret_value}
+
+
+class SecretFetchIn(BaseModel):
+    master_password: str
+
+@router.get("/{item_id}", response_model=SecretOut)
+def get_secret(item_id: str, query: SecretFetchIn = Depends(), user_id: str = Depends(login)):
+    repo = pick_repo()
+    user  = repo.get_by_id(user_id)
+    item  = repo.get_item(user_id, item_id)
+
+    if not item:
+        raise HTTPException(404, "Secret not found")
+
+    key = kdf.derive_key(
+        master_pwd=query.master_password,
+        salt=bytes.fromhex(user["kdf_salt"]),
+        mem_kib=user["kdf_mem"],
+        time=user["kdf_time"],
+        lanes=user["kdf_lanes"],
+    )
+
+    try:
+        plaintext = encryption.decrypt(item.data, key)
+    finally:
+        del key
+
+    return {"id": item.id, "title": item.title, "secret_value": plaintext}

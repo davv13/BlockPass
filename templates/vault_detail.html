@@ -5,17 +5,35 @@
 <div class="card">
   <div class="card-body">
     <h6 class="card-subtitle mb-2 text-muted">
-      Created {{ item.created_at.strftime('%Y‑%m‑%d %H:%M:%S') }}
+      Created&nbsp;{{ item.created_at.strftime('%Y‑%m‑%d&nbsp;%H:%M:%S') }}
     </h6>
 
-    <p class="card-text">
-      <strong>Password / secret:</strong><br>
-      <code>{{ secret }}</code>
-    </p>
+    {% if secret %}
+      <!-- Secret successfully decrypted -->
+      <p class="card-text">
+        <strong>Password / secret:</strong><br>
+        <code>{{ secret }}</code>
+      </p>
+    {% else %}
+      <!-- Ask for master password to decrypt -->
+      <form method="post">
+        <div class="mb-3">
+          <label class="form-label">Master password</label>
+          <input type="password"
+                 name="master_password"
+                 class="form-control"
+                 autocomplete="current-password"
+                 required />
+        </div>
+        <button class="btn btn-primary">Reveal</button>
+      </form>
+    {% endif %}
 
-    <a href="/vault" class="btn btn-link">&larr; back</a>
+    <a href="/vault" class="btn btn-link">&larr; back</a>
+
     <!-- optional delete -->
-    <form action="/vault/{{ item.id }}/delete" method="post"
+    <form action="/vault/{{ item.id }}/delete"
+          method="post"
           class="d-inline">
       <button class="btn btn-sm btn-danger"
               onclick="return confirm('Delete forever?')">
