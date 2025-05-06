@@ -1,20 +1,24 @@
-## 🔐 **Secure Password Manager (Centralized + Blockchain-based)**
+## 🔐 BlockPass - Secure Password Manager
 
-### The goal is to build a secure password management system with two modes — one using a traditional backend, and another using a decentralized blockchain approach.
+(Centralized mode + upcoming Blockchain mode)\*\*
+
+A study project that shows how a *classic* backend can reach modern “zero‑knowledge” guarantees (per‑user Argon2id, AES‑256‑GCM, short‑lived JWT) before we port the same UX to a decentralized IPFS + block‑chain design.
 
 ---
 
-## 🚀 Getting Started with the Centralized Mode — PostgreSQL backend (Docker Compose)
+## 🚀 Getting started — Centralized stack (Docker Compose, PostgreSQL)
 
 ### Prerequisites
-| tool | why you need it | get it |
-|------|-----------------|--------|
-| **Git** | clone the repo | <https://git‑scm.com> |
-| **Docker Engine + Docker Compose** | run PostgreSQL, the FastAPI app & pgAdmin in containers | <https://docs.docker.com/get-docker> |
+
+| Tool                        | Why you need it                               | Link                                                                     |
+| --------------------------- | --------------------------------------------- | ------------------------------------------------------------------------ |
+| **Git**                     | clone this repo                               | [https://git‑scm.com/downloads](https://git-scm.com/downloads)           |
+| **Docker Engine + Compose** | run FastAPI, Postgres & pgAdmin in containers | [https://docs.docker.com/get-docker](https://docs.docker.com/get-docker) |
 
 ---
 
-### 1 . Clone the repo
+### 1 . Clone the repo
+
 ```bash
 git clone https://github.com/davv13/BlockPass.git
 cd BlockPass
@@ -22,137 +26,142 @@ cd BlockPass
 
 ---
 
-### 2 . Create `.env`
-
-> `.env` is **git‑ignored** on purpose – each user keeps secrets locally.
-
-```bash
-touch .env
-```
-
-Paste the following **minimal** configuration (edit to taste):
+### 2 . Create your `.env`
+`.env` is **git‑ignored**; each developer keeps secrets locally.
 
 ```dotenv
 ################  Database  ################
-DB_BACKEND=postgres              # ← tell the app to use PostgreSQL
+DB_BACKEND=postgres
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres       # change!!!
+POSTGRES_PASSWORD=postgres        # change in prod
 POSTGRES_DB=blockpass
-POSTGRES_HOST=db                 # ← name of the service in docker‑compose.yml
+POSTGRES_HOST=db                  # ← docker‑compose service name
 POSTGRES_PORT=5432
 
 ################  JWT  ################
-JWT_SECRET=supersecretkey123     # change!!!
+JWT_SECRET=supersecretkey123      # change in prod
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
-
-################  Vault  ################
-# 32‑byte key – see step 2‑b to generate safely
-VAULT_KEY=IgFtNNlpDrUbMEMlz6qVq5Bucr7iF9SakRiO3MYOqUU=
 ```
 
-#### 2‑b . Generate a strong `VAULT_KEY`
-```bash
-python - <<'PY'
-import secrets, base64
-print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
-PY
-```
-Copy the printed string into `VAULT_KEY=`.
+*(Notice: **no `VAULT_KEY`** — vault keys are derived per‑user with Argon2id.)*
 
 ---
 
-### 3 . Build & run everything
+### 3 . Build & run
 
 ```bash
-docker compose up --build -d     # builds the API image and starts api + db + pgAdmin
+docker compose up --build -d   # builds the image, starts api + db + pgAdmin
 ```
 
-**First run = first migrations**  
-On launch the API auto‑creates all tables inside `blockpass` database.
+First boot auto‑creates the tables (`users`, `vault_items`) and logs
+`Application startup complete`.
 
 ---
 
-### 4 . Open the services
+### 4 . Open the services
 
-| URL | what you get | default creds |
-|-----|--------------|---------------|
-| <http://localhost:8000/register> | BlockPass web UI (Jinja2 + Bootstrap) | register your own |
-| <http://localhost:5050>  | **pgAdmin 4** | *email*: `admin@local.com`  /  *password*: `admin` |
+| URL                                                              | What you get                          | Default creds                        |
+| ---------------------------------------------------------------- | ------------------------------------- | ------------------------------------ |
+| [http://localhost:8000/register](http://localhost:8000/register) | BlockPass web UI (Jinja2 + Bootstrap) | create your own                      |
+| [http://localhost:5050](http://localhost:5050)                   | **pgAdmin 4** database GUI            | email `admin@local.com` / pw `admin` |
 
-> **Note:** data lives in the Docker volume `blockpass_db-data`; it persists across container restarts.
-
----
-
-### 5 . Typical workflow
-
-1. **Register** a user at `http://localhost:8000/register`.  
-2. **Login** → you’re redirected to `/vault`.  
-3. Add, view & decrypt password items right in the browser.
+> All data live in Docker volume **blockpass\_db\_data** and survive container restarts.
+> `docker compose down -v` wipes the volume for a fresh demo.
 
 ---
 
-### 6 . House‑keeping commands
+### 5 . Typical workflow
 
-| task | command |
-|------|---------|
-| Stop containers (keep data) | `docker compose down` |
-| Stop **and** wipe the database | `docker compose down -v` |
-| Watch live API logs | `docker compose logs -f api` |
-| Rebuild after code or `.env` change | `docker compose up --build -d` |
-
----
-
-## 🛠️🔐 How the backend of PostgreSQL backend (Docker Compose) works – under the hood  
-
-
-
-### 1 . User **Register → Login** flow & password handling
-
-| step | what happens | relevant code |
-|------|--------------|---------------|
-| **POST /​auth/register** | *a)* JSON payload `{username, password}` is parsed by Pydantic.<br>*b)* `app/core/security.hash_password()` hashes the raw password with **bcrypt $2b$12** (12 work‑factor).<br>*c)* The repository stores `{id, username, password_hash}`.<br>*d)* On success → **201 Created**. | `routes/auth.py` → `security.py` |
-| **POST /​auth/login** | *a)* Load user by `username`.<br>*b)* **bcrypt verify** against stored hash.<br>*c)* On match → build a **JWT** ⚙️: `{ "sub": <user‑id>, "exp": <now + n min> }` signed with `HS256` & `JWT_SECRET`.<br>*d)* Return it two ways: JSON → `{"access_token": "…"}` **and** set an **httpOnly cookie `access_token`** so the HTML UI works without JS. | `routes/auth.py` |
-
-**Storage:**  
-
-* **PostgreSQL backend** → row in `users` table. Column `password` stores the bcrypt string (`$2b$12$…`).  
-* **File backend** → same fields in `blockpass_users.json`.
+1. **Register** at `/register` (master password = login password).
+2. **Login** → redirected to `/vault`.
+3. **New Item** → type a title + secret → re‑enter master password.
+4. Click the item → re‑enter master password to **reveal**.
+5. **Delete** to remove the ciphertext row.
 
 ---
 
-### 2 . Token‑based auth (JWT) & CRUD for vault entries
+### 6 . House‑keeping
 
-| piece | behaviour | file(s) |
-|-------|-----------|---------|
-| **Auth dependency** | `get_current_user()` first tries **`Authorization: Bearer <jwt>`**, then falls back to the cookie. It decodes the token, verifies signature & expiry and loads the user. `401` otherwise. | `core/auth.py` |
-| **Create item** | **POST /​vault/create** (HTML) or **POST /​vault/** (JSON) → encrypt secret with Fernet (key =`VAULT_KEY`) → store `{id (UUID‑hex), user_id, title, data (cipher‑text), created_at}`. | `routes/views.py` + `routes/vault.py` |
-| **Read list / item** | Only rows whose `user_id` == current user are queried; secret is decrypted on demand. | same as above |
-| **Update / Delete** | not implemented yet – deliberately MVP. (Good first issue ≙ PATCH/DELETE endpoints + HTML) |
-
----
-
-### 3 . Validation, sanitation, tests
-
-| aspect | status |
-|--------|--------|
-| **Input validation** | All incoming JSON / form bodies pass through **Pydantic models** (`schemas/*.py`). |
-| **Route sanitation** | Vault routes verify ownership before returning data; IDs are URL‑safe strings (hex). |
-| **Hashing & token unit tests** | Basic pytest suite in `tests/test_security.py` – covers `hash_password()`, `verify_password()` and `create_access_token()` round‑trip. (_Run `pytest -q` locally_). |
+| Task                                | Command                        |
+| ----------------------------------- | ------------------------------ |
+| Stop containers (keep data)         | `docker compose down`          |
+| Stop **and** delete all data        | `docker compose down -v`       |
+| Follow API logs                     | `docker compose logs -f api`   |
+| Rebuild after code or `.env` change | `docker compose up --build -d` |
 
 ---
 
-### 4 . Security measures already in place ✅
+## 🛠️🔐 How the centralized backend works
 
-| category | what we do | why it matters |
-|----------|------------|----------------|
-| **Password safety** | * bcrypt‑12 with per‑user salt <br>* never store plaintext | Defends against credential dumps & rainbow tables |
-| **Transport** | The stack itself is TLS‑agnostic → put **Traefik / NGINX TLS termination** in front when deploying. |
-| **Authentication** | * Short‑lived JWT (default 60 min) <br>* Stored in **httpOnly** cookie → immune to XSS JS theft. | Minimises token leakage vector. |
-| **Authorisation** | Every vault query filters by `user_id`. Users can’t touch others’ items. |
-| **Data‑at‑rest** | Vault secrets are **AES‑256‑GCM via Fernet** with a key nobody but the operator knows (`VAULT_KEY`). |
-| **Dependency safety** | Latest stable libs in `requirements.txt`; image is **python:3.13‑slim** to keep CVE surface small. |
-| **CSRF** | Safe for same‑site cookies (`SameSite=Lax` by default in FastAPI). |
-| **SQL injection** | All queries use SQLAlchemy ORM or parameterised drivers – no string concatenation. |
+### 1 . Register → Login flow
+
+| Step                    | What happens                                                                                                                                                                                                                                         | Code                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| **POST /auth/register** | • Pydantic validates `{username,password}`.<br>• `hash_password()` **bcrypt‑12** hashes the password.<br>• Repo stores row with bcrypt hash **plus** a fresh 16‑byte `kdf_salt` and default Argon2id cost parameters (19 MiB mem, 2 passes, 1 lane). | `routes/auth.py` / `core/security.py` |
+| **POST /auth/login**    | • Look up user.<br>• bcrypt verifies hash.<br>• Build **JWT** `{sub:user‑id, exp:now+TTL}` signed with `HS256` & `JWT_SECRET`.<br>• Return JSON *and* set an **HttpOnly cookie `access_token`** so HTML works without JavaScript.                    | `routes/auth.py`                      |
 
 ---
+
+### 2 . Token auth & vault CRUD
+
+| Piece                       | Behaviour                                                                                                                                                                                  | File(s)                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| **Auth dependency**         | `get_current_user()` checks `Authorization: Bearer` header, else the cookie. It verifies signature & expiry, then loads the user record.                                                   | `core/auth.py`                        |
+| **Create item (HTML/JSON)** | Re‑enter master password → Argon2id derives a 256‑bit key (using stored salt & costs) → AES‑256‑GCM encrypts the secret → save `{id (UUID‑hex), user_id, title, data(bytea), created_at}`. | `routes/views.py` & `routes/vault.py` |
+| **Read / reveal**           | Same Argon2id run regenerates the key in RAM; AES‑GCM decrypts if tag verifies.                                                                                                            | –                                     |
+| **Delete**                  | `POST /vault/{id}/delete` removes the row if `user_id` matches.                                                                                                                            | `routes/views.py` →                   |
+
+---
+
+### 3 . Validation
+
+| Aspect           | Status                                                                            |
+| ---------------- | --------------------------------------------------------------------------------- |
+| Input validation | All JSON/form bodies pass through Pydantic models (`schemas/*`).                  |
+| Route safety     | Every vault query filters by `user_id`; UUID‑hex IDs are unguessable.             |
+
+---
+
+### 4 . Security measures ✅
+
+| Category           | Implementation                                    | Why it matters                                  |
+| ------------------ | ------------------------------------------------- | ----------------------------------------------- |
+| **Login password** | bcrypt‑12 with unique salt                        | Survives credential dumps & rainbow tables      |
+| **Vault key**      | Argon2id (19 MiB, 2×, 1) per user                 | Memory‑hard, quantum margin preserved           |
+| **Encryption**     | AES‑256‑GCM (unique nonce, 128‑bit tag)           | Confidentiality **and** integrity               |
+| **Zero‑knowledge** | Server stores only ciphertext & public KDF params | DB breach ≠ secret breach                       |
+| **Session**        | 60‑min JWT, HttpOnly cookie, SameSite=Lax         | Thwarts XSS token theft, replay window is small |
+| **Transport**      | Bring your own TLS proxy (Traefik / NGINX)        | Keeps stack image minimal                       |
+| **ORM**            | SQLAlchemy -> prevents SQL injection              | Parameterised queries                           |
+| **Dependencies**   | `python:3.12‑slim`; pinned libs                   | Small CVE surface                               |
+
+---
+
+## 🗄️ Database schema
+
+### users
+
+| Column       | Type        | Purpose       |
+| ------------ | ----------- | ------------- |
+| `id` PK      | serial      | user id       |
+| `username`   | varchar     | unique login  |
+| `password`   | varchar     | bcrypt string |
+| `created_at` | timestamptz | audit         |
+| `kdf_salt`   | bytea(16)   | Argon2id salt |
+| `kdf_mem`    | int         | 19 456 KiB    |
+| `kdf_time`   | int         | 2 passes      |
+| `kdf_lanes`  | int         | 1             |
+
+### vault_items
+
+| Column       | Type        | Purpose              |
+| ------------ | ----------- | -------------------- |
+| `id` PK      | char(32)    | UUID‑hex             |
+| `user_id` FK | int         | owner                |
+| `title`      | varchar     | plaintext label      |
+| `data`       | bytea       | `{nonce,cipher,tag}` |
+| `created_at` | timestamptz | audit                |
+
+---
+
