@@ -1,14 +1,14 @@
 """
 Interactive demo: Decentralised Vault
-• Encrypts secrets locally (Fernet)
+• Encrypts secrets locally (AES-256-GCM)
 • Pins ciphertext to IPFS via Pinata
 • Stores only CID + title on Ethereum
 
 Requirements
 ------------
 * .env must contain PINATA_API_KEY and PINATA_API_SECRET
-* Optional: PRIVATE_KEY and SEPOLIA_RPC_URL for Sepolia/Infura runs
-* Optional: FERNET_KEY (generated & saved automatically if absent)
+* PRIVATE_KEY and SEPOLIA_RPC_URL for Sepolia/Infura runs
+* Optional: AES_KEY (generated & saved automatically if absent)
 """
 
 import os, sys, time, getpass, textwrap
@@ -77,9 +77,9 @@ def banner():
     print(textwrap.dedent("""\
         ╔══════════════════════════════════════════════════════════════╗
         ║  🏛  Decentralised Vault Demo                                ║
-        ║  • Stores *encrypted* secrets on IPFS via Pinata             ║
+        ║  • Stores encrypted secrets on IPFS via Pinata               ║
         ║  • Stores only the CID+title on an Ethereum smart-contract   ║
-        ║  • Your symmetric key never leaves your machine              ║
+        ║  • Your AES-256-GCM key never leaves your machine            ║
         ╚══════════════════════════════════════════════════════════════╝
     """))
 
@@ -99,15 +99,14 @@ def choose_account():
 
 # -----------------------------------------------------------------
 def ensure_key(dotenv_path):
-    raw = os.getenv("FERNET_KEY")
+    raw = os.getenv("AES_KEY")
     if raw:
-        print("🔑 Using existing FERNET_KEY from .env")
+        print("🔑 Using existing AES_KEY from .env")
         return raw.encode()
-
     key = generate_key()
-    print("🔑 Generated new symmetric key:", key.decode())
-    set_key(str(dotenv_path), "FERNET_KEY", key.decode())
-    print("🔑 Saved FERNET_KEY into .env ✔")
+    print("🔑 Generated new AES_KEY:", key.decode())
+    set_key(str(dotenv_path), "AES_KEY", key.decode())
+    print("🔑 Saved AES_KEY into .env ✔")
     return key
 
 # -----------------------------------------------------------------
@@ -122,7 +121,7 @@ def deploy_if_needed(owner, dotenv_path):
         return vault
 
     # 2) Otherwise: deploy, then persist into .env
-    vault = owner.deploy(project.Vault, gas_limit=300_000)
+    vault = owner.deploy(project.Vault)
     print("🏛  Vault deployed →", vault.address)
 
     # Persist back to .env so future runs will pick it up
